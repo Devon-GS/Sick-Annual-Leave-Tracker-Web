@@ -244,8 +244,7 @@ def employees():
             cursor = db.execute(
                 '''INSERT INTO employees (name, employee_id, department, hire_date, email, phone)
                    VALUES (?, ?, ?, ?, ?, ?)''',
-                (data['name'], data['employee_id'], data['department'], 
-                 data['hire_date'], data.get('email', ''), data.get('phone', ''))
+                (data['name'], data['employee_id'], '', data['hire_date'], '', '')
             )
             db.commit()
             
@@ -254,10 +253,10 @@ def employees():
                 'id': emp_id,
                 'name': data['name'],
                 'employee_id': data['employee_id'],
-                'department': data['department'],
+                'department': '',
                 'hire_date': data['hire_date'],
-                'email': data.get('email', ''),
-                'phone': data.get('phone', '')
+                'email': '',
+                'phone': ''
             }), 201
         except Exception as e:
             return jsonify({'error': str(e)}), 400
@@ -305,10 +304,9 @@ def employee_detail(emp_id):
         try:
             db.execute(
                 '''UPDATE employees 
-                   SET name = ?, employee_id = ?, department = ?, hire_date = ?, email = ?, phone = ?
+                   SET name = ?, employee_id = ?, hire_date = ?
                    WHERE id = ?''',
-                (data['name'], data['employee_id'], data['department'], 
-                 data['hire_date'], data.get('email', ''), data.get('phone', ''), emp_id)
+                (data['name'], data['employee_id'], data['hire_date'], emp_id)
             )
             db.commit()
             return jsonify({'message': 'Employee updated'}), 200

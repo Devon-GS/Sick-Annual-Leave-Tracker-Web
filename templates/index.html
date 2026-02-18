@@ -12,49 +12,6 @@
         </div>
     </div>
 
-    <!-- Stats Grid -->
-    <div class="stats-grid">
-        <div class="stat-card">
-            <div class="stat-icon employees">
-                <i class="fas fa-users"></i>
-            </div>
-            <div class="stat-info">
-                <p class="stat-label">Total Employees</p>
-                <p class="stat-value" id="totalEmployees">0</p>
-            </div>
-        </div>
-
-        <div class="stat-card">
-            <div class="stat-icon leaves">
-                <i class="fas fa-calendar-alt"></i>
-            </div>
-            <div class="stat-info">
-                <p class="stat-label">Active Leaves</p>
-                <p class="stat-value" id="activeLeaves">0</p>
-            </div>
-        </div>
-
-        <div class="stat-card">
-            <div class="stat-icon annual">
-                <i class="fas fa-sun"></i>
-            </div>
-            <div class="stat-info">
-                <p class="stat-label">Annual Days Used</p>
-                <p class="stat-value" id="annualDays">0</p>
-            </div>
-        </div>
-
-        <div class="stat-card">
-            <div class="stat-icon sick">
-                <i class="fas fa-heartbeat"></i>
-            </div>
-            <div class="stat-info">
-                <p class="stat-label">Sick Days Used</p>
-                <p class="stat-value" id="sickDays">0</p>
-            </div>
-        </div>
-    </div>
-
     <!-- Tabs Section -->
     <div class="tabs-container">
         <div class="tabs-header">
@@ -92,12 +49,13 @@
                             <th>Employee ID</th>
                             <th>Department</th>
                             <th>Hire Date</th>
-                            <th>Email</th>
+                            <th>Annual Leave</th>
+                            <th>Sick Leave</th>
                             <th class="actions-col">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="employeesBody">
-                        <tr class="loading"><td colspan="6"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>
+                        <tr class="loading"><td colspan="7"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -202,25 +160,9 @@
                     <input type="text" id="empId" name="employee_id" placeholder="EMP-001" required>
                 </div>
             </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Department</label>
-                    <input type="text" id="empDept" name="department" placeholder="e.g., HR, Sales" required>
-                </div>
-                <div class="form-group">
-                    <label>Hire Date</label>
-                    <input type="date" id="empHireDate" name="hire_date" required>
-                </div>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Email</label>
-                    <input type="email" id="empEmail" name="email" placeholder="employee@company.com">
-                </div>
-                <div class="form-group">
-                    <label>Phone</label>
-                    <input type="tel" id="empPhone" name="phone" placeholder="+1 (555) 000-0000">
-                </div>
+            <div class="form-group">
+                <label>Hire Date</label>
+                <input type="date" id="empHireDate" name="hire_date" required>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="closeModal('addEmployeeModal')">Cancel</button>
@@ -382,9 +324,8 @@
                 <td>${emp.employee_id}</td>
                 <td>${emp.department}</td>
                 <td>${emp.hire_date}</td>
-                <td>${(emp.annual_leave_balance || 0).toFixed(1)}</td>
-                <td>${(emp.sick_leave_balance || 0).toFixed(1)}</td>
-                <td>${emp.email || '-'}</td>
+                <td>${(emp.annual_leave_balance || 0).toFixed(1)} days</td>
+                <td>${(emp.sick_leave_balance || 0).toFixed(1)} days</td>
                 <td>
                     <button class="btn btn-sm btn-secondary" onclick="editEmployee(${emp.id})">Edit</button>
                     <button class="btn btn-sm btn-danger" onclick="deleteEmployee(${emp.id})">Delete</button>
@@ -435,10 +376,7 @@
         
         document.getElementById('empName').value = emp.name;
         document.getElementById('empId').value = emp.employee_id;
-        document.getElementById('empDept').value = emp.department;
         document.getElementById('empHireDate').value = emp.hire_date;
-        document.getElementById('empEmail').value = emp.email || '';
-        document.getElementById('empPhone').value = emp.phone || '';
         
         const form = document.getElementById('employeeForm');
         form.onsubmit = async (e) => {
@@ -556,6 +494,7 @@
                 event.target.reset();
                 closeModal('addAnnualModal');
                 await loadAnnualLeave();
+                await loadEmployees();
                 showAlert('annualAlert', 'Annual leave added successfully', 'success');
             } else {
                 const error = await response.json();
@@ -588,6 +527,7 @@
                 event.target.reset();
                 closeModal('addSickModal');
                 await loadSickLeave();
+                await loadEmployees();
                 showAlert('sickAlert', 'Sick leave added successfully', 'success');
             } else {
                 const error = await response.json();
@@ -628,15 +568,26 @@
 
     async function submitEditLeaveForm(event) {
         event.preventDefault();
-        const data = new FormData(event.target);
+        const data = Object.fromEntries(new FormData(event.target));
         const leaveId = document.getElementById('editLeaveId').value;
         const type = document.getElementById('editLeaveType').value;
         const endpoint = type === 'annual' ? '/api/annual-leave' : '/api/sick-leave';
         
+        // Calculate days used
+        const startDate = new Date(data.start_date);
+        const endDate = new Date(data.end_date);
+        const daysDifference = (endDate - startDate) / (1000 * 60 * 60 * 24) + 1;
+        data.days_used = Math.max(1, daysDifference);
+        
+        // Remove editLeaveId and editLeaveType from data
+        delete data.editLeaveId;
+        delete data.editLeaveType;
+        if (type === 'annual') delete data.editMedCert;
+        
         try {
             const response = await fetch(`${endpoint}/${leaveId}`, {
                 method: 'PUT',
-                body: JSON.stringify(Object.fromEntries(data)),
+                body: JSON.stringify(data),
                 headers: { 'Content-Type': 'application/json' }
             });
             
@@ -644,9 +595,14 @@
                 closeModal('editLeaveModal');
                 if (type === 'annual') await loadAnnualLeave();
                 else await loadSickLeave();
+                await loadEmployees();
                 showAlert(type + 'Alert', 'Leave record updated successfully', 'success');
+            } else {
+                const error = await response.json();
+                showAlert(type + 'Alert', `Error: ${error.error || 'Failed to update leave'}`, 'error');
             }
         } catch (error) {
+            console.error('[v0] Update leave error:', error);
             showAlert(type + 'Alert', 'Error updating leave', 'error');
         }
     }
