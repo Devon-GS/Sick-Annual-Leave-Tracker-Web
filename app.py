@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import sqlite3
 import os
 import json
+import webbrowser
 
 app = Flask(__name__)
 app.config['DATABASE'] = 'leave_manager.db'
@@ -489,4 +490,5 @@ def view_leave():
 
 if __name__ == '__main__':
     init_db()
-    app.run(debug=True, port=5000)
+    webbrowser.open_new("http://127.0.0.1:5000") 
+    app.run(debug=True, port=5000)   

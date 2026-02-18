@@ -128,12 +128,24 @@
             <div class="content-header">
                 <div>
                     <h2>Leave Report</h2>
-                    <p>Comprehensive view of all leave balances</p>
+                    <p>View employee leave balances and usage</p>
                 </div>
             </div>
             
-            <div id="leaveReportContainer" class="report-grid">
-                <div class="loading-state"><i class="fas fa-spinner fa-spin"></i> Loading...</div>
+            <!-- Employee Selector -->
+            <div class="report-selector">
+                <label for="reportEmployeeSelect">Select Employee:</label>
+                <select id="reportEmployeeSelect" onchange="displayEmployeeReport()">
+                    <option value="">-- Choose an employee --</option>
+                </select>
+            </div>
+            
+            <!-- Reports Container -->
+            <div id="leaveReportContainer">
+                <div class="empty-state">
+                    <i class="fas fa-file-chart-line"></i>
+                    <p>Select an employee to view their leave report</p>
+                </div>
             </div>
         </div>
     </div>
@@ -244,7 +256,14 @@
             </div>
             <div class="form-group">
                 <label>Medical Certificate</label>
-                <input type="text" id="sickMedCert" name="medical_cert" placeholder="Certificate reference number (optional)">
+                <div class="file-input-wrapper">
+                    <input type="file" id="sickMedCert" name="medical_cert_file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style="display: none;">
+                    <button type="button" class="btn btn-secondary btn-file-upload" onclick="document.getElementById('sickMedCert').click()">
+                        <i class="fas fa-upload"></i> Upload Certificate
+                    </button>
+                    <span id="sickMedCertFileName" class="file-name-display"></span>
+                </div>
+                <small class="form-help-text">Accepted formats: PDF, JPG, PNG, DOC (Max 5MB)</small>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="closeModal('addSickModal')">Cancel</button>
@@ -343,6 +362,73 @@
             select.value = currentValue;
         });
     }
+
+    // View medical certificate
+    function viewCertificate(filename, employeeName) {
+        if (!filename) return;
+        
+        const modal = document.getElementById('certificateModal');
+        document.getElementById('certFileName').textContent = filename;
+        document.getElementById('certEmployeeName').textContent = employeeName;
+        document.getElementById('certFileIcon').innerHTML = getFileIcon(filename);
+        
+        // Set up download/view link
+        const fileExt = filename.split('.').pop().toLowerCase();
+        const fileUrl = `/uploads/${encodeURIComponent(filename)}`;
+        
+        const viewBtn = document.getElementById('viewCertBtn');
+        const downloadBtn = document.getElementById('downloadCertBtn');
+        
+        // For PDFs and images, show in new tab
+        if (['pdf', 'jpg', 'jpeg', 'png'].includes(fileExt)) {
+            viewBtn.style.display = 'inline-block';
+            viewBtn.onclick = () => window.open(fileUrl, '_blank');
+        } else {
+            viewBtn.style.display = 'none';
+        }
+        
+        downloadBtn.onclick = (e) => {
+            e.preventDefault();
+            const link = document.createElement('a');
+            link.href = fileUrl;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        };
+        
+        openModal('certificateModal');
+    }
+
+    function getFileIcon(filename) {
+        const ext = filename.split('.').pop().toLowerCase();
+        const iconMap = {
+            'pdf': 'fas fa-file-pdf',
+            'doc': 'fas fa-file-word',
+            'docx': 'fas fa-file-word',
+            'jpg': 'fas fa-file-image',
+            'jpeg': 'fas fa-file-image',
+            'png': 'fas fa-file-image'
+        };
+        return `<i class="${iconMap[ext] || 'fas fa-file'}"></i>`;
+    }
+
+    // File upload handling
+    document.addEventListener('DOMContentLoaded', function() {
+        const fileInput = document.getElementById('sickMedCert');
+        if (fileInput) {
+            fileInput.addEventListener('change', function(e) {
+                const fileName = e.target.files[0]?.name || '';
+                const display = document.getElementById('sickMedCertFileName');
+                if (fileName) {
+                    display.textContent = '✓ ' + fileName;
+                    display.style.color = '#10b981';
+                } else {
+                    display.textContent = '';
+                }
+            });
+        }
+    });
 
     async function submitEmployeeForm(event) {
         event.preventDefault();
@@ -463,9 +549,13 @@
                 <td>${leave.start_date}</td>
                 <td>${leave.end_date}</td>
                 <td>${leave.days_used}</td>
-                <td>${leave.reason || '-'}</td>
-                <td>${leave.medical_cert || '-'}</td>
-                <td><span class="status ${leave.status.toLowerCase()}">${leave.status}</span></td>
+                <td>
+                    ${leave.medical_cert ? `
+                        <button class="btn btn-sm btn-success" onclick="viewCertificate('${leave.medical_cert}', '${leave.employee_name}')">
+                            <i class="fas fa-file-pdf"></i> View
+                        </button>
+                    ` : '<span class="text-muted">-</span>'}
+                </td>
                 <td>
                     <button class="btn btn-sm btn-secondary" onclick="editLeave(${leave.id}, 'sick')">Edit</button>
                 </td>
@@ -508,23 +598,27 @@
 
     async function submitSickForm(event) {
         event.preventDefault();
-        const data = Object.fromEntries(new FormData(event.target));
+        const form = event.target;
+        const formData = new FormData(form);
         
-        // Calculate days used
-        const startDate = new Date(data.start_date);
-        const endDate = new Date(data.end_date);
+        // Calculate days used from dates
+        const startDate = new Date(formData.get('start_date'));
+        const endDate = new Date(formData.get('end_date'));
         const daysDifference = (endDate - startDate) / (1000 * 60 * 60 * 24) + 1;
-        data.days_used = Math.max(1, daysDifference);
+        
+        // Clear previous values and add calculated data
+        formData.delete('medical_cert');
+        formData.append('days_used', Math.max(1, daysDifference));
         
         try {
             const response = await fetch('/api/sick-leave', {
                 method: 'POST',
-                body: JSON.stringify(data),
-                headers: { 'Content-Type': 'application/json' }
+                body: formData
             });
             
             if (response.ok) {
-                event.target.reset();
+                form.reset();
+                document.getElementById('sickMedCertFileName').textContent = '';
                 closeModal('addSickModal');
                 await loadSickLeave();
                 await loadEmployees();
@@ -631,33 +725,159 @@
         try {
             const response = await fetch('/api/view-leave');
             const data = await response.json();
-            renderViewLeave(data);
+            
+            // Populate employee selector
+            const select = document.getElementById('reportEmployeeSelect');
+            select.innerHTML = '<option value="">-- Choose an employee --</option>' +
+                data.employees.map(emp => `<option value="${emp.id}">${emp.name}</option>`).join('');
+            
+            // Store leave data for display
+            window.leaveReportData = {
+                employees: data.employees,
+                annual: data.annual,
+                sick: data.sick
+            };
         } catch (error) {
+            console.error('[v0] Error loading leave report:', error);
             showAlert('viewAlert', 'Error loading leave report', 'error');
         }
     }
 
-    function renderViewLeave(data) {
+    function displayEmployeeReport() {
+        const select = document.getElementById('reportEmployeeSelect');
+        const employeeId = parseInt(select.value);
         const container = document.getElementById('leaveReportContainer');
-        container.innerHTML = data.map(emp => `
-            <div class="card">
-                <h4 class="font-semibold text-lg mb-3">${emp.name}</h4>
-                <div class="grid grid-cols-2 gap-4 mb-4">
-                    <div class="bg-blue-50 p-3 rounded">
-                        <div class="text-sm text-gray-600">Annual Leave Balance</div>
-                        <div class="text-2xl font-bold text-blue-600">${(emp.annual_leave_balance || 0).toFixed(1)}</div>
+        
+        if (!employeeId) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-file-chart-line"></i>
+                    <p>Select an employee to view their leave report</p>
+                </div>
+            `;
+            return;
+        }
+        
+        // Find employee data
+        const employee = window.leaveReportData.employees.find(e => e.id === employeeId);
+        if (!employee) return;
+        
+        // Calculate leave statistics
+        const annualLeave = window.leaveReportData.annual.filter(l => l.employee_id === employeeId);
+        const sickLeave = window.leaveReportData.sick.filter(l => l.employee_id === employeeId);
+        
+        const annualUsed = annualLeave.reduce((sum, l) => sum + (l.days_used || 0), 0);
+        const sickUsed = sickLeave.reduce((sum, l) => sum + (l.days_used || 0), 0);
+        
+        const annualAlloc = employee.annual_leave_allocated || 0;
+        const sickAlloc = employee.sick_leave_allocated || 0;
+        const annualBalance = Math.max(0, annualAlloc - annualUsed);
+        const sickBalance = Math.max(0, sickAlloc - sickUsed);
+        
+        const annualPercent = annualAlloc > 0 ? (annualUsed / annualAlloc * 100) : 0;
+        const sickPercent = sickAlloc > 0 ? (sickUsed / sickAlloc * 100) : 0;
+        
+        container.innerHTML = `
+            <div class="leave-report-cards">
+                <!-- Annual Leave Card -->
+                <div class="leave-card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <i class="fas fa-plane"></i>
+                            <h3>Annual Leave</h3>
+                        </div>
                     </div>
-                    <div class="bg-red-50 p-3 rounded">
-                        <div class="text-sm text-gray-600">Sick Leave Balance</div>
-                        <div class="text-2xl font-bold text-red-600">${(emp.sick_leave_balance || 0).toFixed(1)}</div>
+                    <div class="card-body">
+                        <div class="leave-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">Allocated</span>
+                                <span class="stat-value">${annualAlloc.toFixed(1)}</span>
+                                <span class="stat-unit">days</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Used</span>
+                                <span class="stat-value">${annualUsed.toFixed(1)}</span>
+                                <span class="stat-unit">days</span>
+                            </div>
+                            <div class="stat-item highlight">
+                                <span class="stat-label">Remaining</span>
+                                <span class="stat-value">${annualBalance.toFixed(1)}</span>
+                                <span class="stat-unit">days</span>
+                            </div>
+                        </div>
+                        <div class="progress-section">
+                            <div class="progress-bar-container">
+                                <div class="progress-bar" style="width: ${annualPercent}%"></div>
+                            </div>
+                            <p class="progress-text">${annualPercent.toFixed(0)}% used</p>
+                        </div>
+                        <div class="leave-table-mini">
+                            <div class="table-header-mini">
+                                <div>Date Range</div>
+                                <div>Days</div>
+                                <div>Reason</div>
+                            </div>
+                            ${annualLeave.length > 0 ? annualLeave.map(l => `
+                                <div class="table-row-mini">
+                                    <div>${l.start_date} to ${l.end_date}</div>
+                                    <div>${l.days_used}</div>
+                                    <div>${l.reason || '-'}</div>
+                                </div>
+                            `).join('') : '<div class="table-row-mini"><div colspan="3" style="text-align: center; color: #9ca3af;">No records</div></div>'}
+                        </div>
                     </div>
                 </div>
-                <div class="text-sm text-gray-600">
-                    <strong>Annual Leave Used:</strong> ${(emp.annual_leave_used || 0).toFixed(1)} days<br>
-                    <strong>Sick Leave Used:</strong> ${(emp.sick_leave_used || 0).toFixed(1)} days
+                
+                <!-- Sick Leave Card -->
+                <div class="leave-card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <i class="fas fa-stethoscope"></i>
+                            <h3>Sick Leave</h3>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="leave-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">Allocated</span>
+                                <span class="stat-value">${sickAlloc.toFixed(1)}</span>
+                                <span class="stat-unit">days</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Used</span>
+                                <span class="stat-value">${sickUsed.toFixed(1)}</span>
+                                <span class="stat-unit">days</span>
+                            </div>
+                            <div class="stat-item highlight">
+                                <span class="stat-label">Remaining</span>
+                                <span class="stat-value">${sickBalance.toFixed(1)}</span>
+                                <span class="stat-unit">days</span>
+                            </div>
+                        </div>
+                        <div class="progress-section">
+                            <div class="progress-bar-container sick">
+                                <div class="progress-bar" style="width: ${sickPercent}%"></div>
+                            </div>
+                            <p class="progress-text">${sickPercent.toFixed(0)}% used</p>
+                        </div>
+                        <div class="leave-table-mini">
+                            <div class="table-header-mini">
+                                <div>Date Range</div>
+                                <div>Days</div>
+                                <div>Reason</div>
+                            </div>
+                            ${sickLeave.length > 0 ? sickLeave.map(l => `
+                                <div class="table-row-mini">
+                                    <div>${l.start_date} to ${l.end_date}</div>
+                                    <div>${l.days_used}</div>
+                                    <div>${l.reason || '-'}</div>
+                                </div>
+                            `).join('') : '<div class="table-row-mini"><div colspan="3" style="text-align: center; color: #9ca3af;">No records</div></div>'}
+                        </div>
+                    </div>
                 </div>
             </div>
-        `).join('');
+        `;
     }
 
     function showAlert(elementId, message, type) {
@@ -694,4 +914,38 @@
         });
     });
 </script>
+
+<!-- Medical Certificate Viewer Modal -->
+<div id="certificateModal" class="modern-modal">
+    <div class="modal-overlay"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Medical Certificate</h3>
+            <button class="modal-close" onclick="closeModal('certificateModal')">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div style="padding: 2rem;">
+            <div style="text-align: center; margin-bottom: 1.5rem;">
+                <div id="certFileIcon" style="font-size: 3rem; color: #2563eb; margin-bottom: 1rem;"></div>
+                <h4 style="color: #1f2937; margin-bottom: 0.5rem;">Certificate for <span id="certEmployeeName"></span></h4>
+                <p style="color: #6b7280; font-size: 0.875rem;" id="certFileName"></p>
+            </div>
+            <div style="background: #f3f4f6; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; text-align: center; color: #6b7280;">
+                <i class="fas fa-info-circle" style="margin-right: 0.5rem;"></i>
+                <small>File has been uploaded and recorded in the system</small>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" id="viewCertBtn" class="btn btn-primary" style="display: none;">
+                <i class="fas fa-eye"></i> View
+            </button>
+            <button type="button" id="downloadCertBtn" class="btn btn-secondary">
+                <i class="fas fa-download"></i> Download
+            </button>
+            <button type="button" class="btn btn-secondary" onclick="closeModal('certificateModal')">Close</button>
+        </div>
+    </div>
+</div>
+
 {% endblock %}

@@ -8,3 +8,9 @@ node_modules/
 .next/
 .env*.local
 .DS_Store
+
+# Other ignores
+/uploads
+/employee-backup-script.zip
+/Questions.txt
+/leave_manager.db
