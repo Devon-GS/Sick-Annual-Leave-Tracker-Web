@@ -1284,6 +1284,41 @@
                 padding: 1.5rem;
             }
         }
+
+        /* Footer Styles */
+        .app-footer {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            padding: 1.5rem 1rem;
+            margin-top: 3rem;
+            border-top: 1px solid var(--primary-light);
+            text-align: center;
+            box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .footer-content {
+            max-width: 1280px;
+            margin: 0 auto;
+        }
+
+        .footer-content p {
+            font-size: 0.875rem;
+            margin: 0;
+            opacity: 0.95;
+            font-weight: 500;
+            letter-spacing: 0.3px;
+        }
+
+        .app-footer #year {
+            font-weight: 600;
+        }
+
+        @media (max-width: 640px) {
+            .app-footer {
+                padding: 1rem;
+                font-size: 0.8125rem;
+            }
+        }
     </style>
     {% block extra_styles %}{% endblock %}
 </head>
@@ -1348,5 +1383,17 @@
         });
     </script>
     {% block scripts %}{% endblock %}
+
+    <!-- Footer -->
+    <footer class="app-footer">
+        <div class="footer-content">
+            <p>&copy; <span id="year"></span> Coded by Devon - Redfire IT Solutions</p>
+        </div>
+    </footer>
+
+    <script>
+        // Set dynamic year in footer
+        document.getElementById('year').textContent = new Date().getFullYear();
+    </script>
 </body>
 </html>

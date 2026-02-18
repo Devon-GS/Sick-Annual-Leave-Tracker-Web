@@ -1,15 +1,26 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for, session
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from functools import wraps
 from datetime import datetime, timedelta
 import sqlite3
 import os
 import json
-import webbrowser
 
 app = Flask(__name__)
 app.config['DATABASE'] = 'leave_manager.db'
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
+app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), 'uploads')
+app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5MB max file size
+
+# Create uploads directory if it doesn't exist
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'}
+
+def allowed_file(filename):
+    """Check if file extension is allowed"""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def get_db():
     """Get database connection"""
@@ -105,7 +116,7 @@ def calculate_annual_leave_balance(employee_id):
     months_employed = (today.year - hire_date.year) * 12 + (today.month - hire_date.month)
     
     # Calculate entitlement: 1.25 days per month
-    entitlement = min(months_employed * 1.25, 30)  # Max 30 days per year
+    entitlement = months_employed * 1.25
     
     # Get used days
     used = db.execute(
@@ -119,7 +130,14 @@ def calculate_annual_leave_balance(employee_id):
     return entitlement, balance
 
 def calculate_sick_leave_balance(employee_id):
-    """Calculate sick leave balance - 30 days per 36 months"""
+    """
+    Calculate sick leave balance:
+    - 36-month cycle starts from hire date
+    - First 6 months: 6 days total
+    - After 6 months: 30 days per 36-month cycle
+    - At 6-month mark: unused days disappear, used days reduce the 30-day allotment
+    - Only deduct leave taken in current cycle
+    """
     db = get_db()
     
     # Get employee hire date
@@ -133,22 +151,75 @@ def calculate_sick_leave_balance(employee_id):
     
     hire_date = datetime.strptime(emp['hire_date'], '%Y-%m-%d')
     today = datetime.now()
-    months_employed = (today.year - hire_date.year) * 12 + (today.month - hire_date.month)
     
-    # Calculate entitlement: 30 days per 36 months
-    cycles = months_employed / 36
-    entitlement = cycles * 30
+    # Calculate total days employed
+    days_employed = (today - hire_date).days
     
-    # Get used days
-    used = db.execute(
-        'SELECT COALESCE(SUM(days_used), 0) as total FROM sickLeave WHERE employee_id = ? AND status = "Approved"',
-        (employee_id,)
-    ).fetchone()
+    # Case 1: Within first 6 months (180 days)
+    if days_employed < 180:
+        # Entitlement is 6 days for first 6 months
+        entitlement = 6
+        
+        # Get sick leave used in first 6 months
+        used = db.execute(
+            '''SELECT COALESCE(SUM(days_used), 0) as total 
+               FROM sickLeave 
+               WHERE employee_id = ? 
+               AND status = "Approved"''',
+            (employee_id,)
+        ).fetchone()
+        used_days = float(used['total']) if used else 0
+        balance = entitlement - used_days
+        
+        return entitlement, max(0, balance)
     
-    used_days = float(used['total']) if used else 0
-    balance = entitlement - used_days
-    
-    return entitlement, balance
+    # Case 2: After 6 months - 30 days per 36-month cycle
+    else:
+        # Calculate which 36-month cycle we're in
+        days_after_six_months = days_employed - 180
+        complete_cycles = days_after_six_months // 1095  # 1095 days = 36 months
+        days_in_current_cycle = days_after_six_months % 1095
+        
+        # Calculate current cycle start date
+        cycle_start_date = hire_date + timedelta(days=180 + (complete_cycles * 1095))
+        
+        # Get sick leave used in current cycle
+        used = db.execute(
+            '''SELECT COALESCE(SUM(days_used), 0) as total 
+               FROM sickLeave 
+               WHERE employee_id = ? 
+               AND status = "Approved" 
+               AND start_date >= ?''',
+            (employee_id, cycle_start_date.strftime('%Y-%m-%d'))
+        ).fetchone()
+        used_days = float(used['total']) if used else 0
+        
+        # At the 6-month mark, if employee used leave in first 6 months,
+        # they carry forward 30 - used_days. If they used nothing, they get 30.
+        # For subsequent cycles, they always get 30 minus what they used this cycle.
+        if complete_cycles == 0:
+            # Still in the first 36-month cycle after probation
+            # Get leave used in first 6 months to carry forward
+            probation_used = db.execute(
+                '''SELECT COALESCE(SUM(days_used), 0) as total 
+                   FROM sickLeave 
+                   WHERE employee_id = ? 
+                   AND status = "Approved"
+                   AND start_date < ?''',
+                (employee_id, (hire_date + timedelta(days=180)).strftime('%Y-%m-%d'))
+            ).fetchone()
+            probation_used_days = float(probation_used['total']) if probation_used else 0
+            
+            # In first 36-month cycle: 30 days minus what was used in first 6 months
+            entitlement = 30
+            total_used_in_cycle = probation_used_days + used_days
+            balance = entitlement - total_used_in_cycle
+        else:
+            # Subsequent cycles: fresh 30 days per cycle
+            entitlement = 30
+            balance = entitlement - used_days
+        
+        return entitlement, max(0, balance)
 
 # Routes
 @app.route('/login', methods=['GET', 'POST'])
@@ -394,7 +465,30 @@ def sick_leave():
     db = get_db()
     
     if request.method == 'POST':
-        data = request.json
+        # Handle both multipart/form-data and JSON
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            # File upload from form-data
+            data = {
+                'employee_id': request.form.get('employee_id'),
+                'start_date': request.form.get('start_date'),
+                'end_date': request.form.get('end_date'),
+                'reason': request.form.get('reason', ''),
+                'days_used': float(request.form.get('days_used', 0)),
+                'medical_cert': ''
+            }
+            
+            # Handle file upload if present
+            if 'medical_cert_file' in request.files:
+                file = request.files['medical_cert_file']
+                if file and file.filename and allowed_file(file.filename):
+                    filename = secure_filename(f"{int(datetime.now().timestamp())}_{file.filename}")
+                    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                    file.save(filepath)
+                    data['medical_cert'] = filename
+        else:
+            # JSON request (for compatibility)
+            data = request.json or {}
+        
         try:
             db.execute(
                 '''INSERT INTO sickLeave (employee_id, start_date, end_date, reason, days_used, medical_cert, status)
@@ -404,7 +498,7 @@ def sick_leave():
                  data.get('status', 'Approved'))
             )
             db.commit()
-            return jsonify({'message': 'Sick leave added'}), 201
+            return jsonify({'message': 'Sick leave added', 'medical_cert': data.get('medical_cert')}), 201
         except Exception as e:
             return jsonify({'error': str(e)}), 400
     
@@ -467,6 +561,28 @@ def view_leave():
     """Get all leave records with employee info"""
     db = get_db()
     
+    # Get all employees
+    employees_data = db.execute(
+        '''SELECT id, name, employee_id, department, hire_date
+           FROM employees 
+           ORDER BY name ASC'''
+    ).fetchall()
+    
+    # Enhance employee data with calculated balances
+    employees = []
+    for emp in employees_data:
+        emp_dict = dict(emp)
+        # Calculate annual leave balance
+        annual_alloc, annual_balance = calculate_annual_leave_balance(emp['id'])
+        # Calculate sick leave balance
+        sick_alloc, sick_balance = calculate_sick_leave_balance(emp['id'])
+        
+        emp_dict['annual_leave_allocated'] = annual_alloc
+        emp_dict['annual_leave_balance'] = annual_balance
+        emp_dict['sick_leave_allocated'] = sick_alloc
+        emp_dict['sick_leave_balance'] = sick_balance
+        employees.append(emp_dict)
+    
     # Get all annual leave with employee names
     annual = db.execute('''
         SELECT a.id, a.employee_id, a.start_date, a.end_date, a.reason, a.days_used, a.status,
@@ -484,11 +600,27 @@ def view_leave():
     ''').fetchall()
     
     return jsonify({
+        'employees': employees,
         'annual': [dict(row) for row in annual],
         'sick': [dict(row) for row in sick]
     }), 200
 
+@app.route('/uploads/<filename>')
+@login_required
+def download_file(filename):
+    """Serve uploaded files"""
+    try:
+        filename = secure_filename(filename)
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        
+        # Verify file exists and is in the uploads folder
+        if os.path.exists(filepath) and os.path.abspath(filepath).startswith(os.path.abspath(app.config['UPLOAD_FOLDER'])):
+            return send_file(filepath, as_attachment=False)
+        else:
+            return jsonify({'error': 'File not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
 if __name__ == '__main__':
     init_db()
-    webbrowser.open_new("http://127.0.0.1:5000") 
-    app.run(debug=True, port=5000)   
+    app.run(debug=True, port=5000)
