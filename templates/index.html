@@ -27,6 +27,9 @@
             <button class="tab-btn" onclick="switchTab('view'); event.preventDefault();" data-tab="view">
                 <i class="fas fa-chart-line"></i><span>Reports</span>
             </button>
+            <button class="tab-btn" onclick="switchTab('archive'); event.preventDefault();" data-tab="archive">
+                <i class="fas fa-archive"></i><span>Archive</span>
+            </button>
         </div>
 
         <!-- Employees Tab -->
@@ -145,6 +148,25 @@
                 <div class="empty-state">
                     <i class="fas fa-file-chart-line"></i>
                     <p>Select an employee to view their leave report</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Archive Tab -->
+        <div id="archive-tab" class="tab-content">
+            <div class="content-header">
+                <div>
+                    <h2>Archived Employees</h2>
+                    <p>View archived employees and their leave records</p>
+                </div>
+            </div>
+            
+            <div id="archiveAlert"></div>
+
+            <div id="archiveContainer" class="archive-grid">
+                <div class="empty-state">
+                    <i class="fas fa-inbox"></i>
+                    <p>No archived employees</p>
                 </div>
             </div>
         </div>
@@ -491,16 +513,19 @@
     }
 
     async function deleteEmployee(empId) {
-        if (!confirm('Are you sure you want to delete this employee?')) return;
+        if (!confirm('Are you sure you want to archive this employee?')) return;
         
         try {
             const response = await fetch(`/api/employees/${empId}`, { method: 'DELETE' });
             if (response.ok) {
                 await loadEmployees();
-                showAlert('employeesAlert', 'Employee deleted successfully', 'success');
+                await loadAnnualLeave();
+                await loadSickLeave();
+                await loadArchiveTab();
+                showAlert('employeesAlert', 'Employee archived successfully', 'success');
             }
         } catch (error) {
-            showAlert('employeesAlert', 'Error deleting employee', 'error');
+            showAlert('employeesAlert', 'Error archiving employee', 'error');
         }
     }
 
@@ -880,6 +905,149 @@
         `;
     }
 
+    async function loadArchiveTab() {
+        try {
+            const response = await fetch('/api/archived-employees');
+            const data = await response.json();
+            renderArchiveTab(data);
+        } catch (error) {
+            console.error('[v0] Error loading archive:', error);
+            showAlert('archiveAlert', 'Error loading archived employees', 'error');
+        }
+    }
+
+    function renderArchiveTab(data) {
+        const container = document.getElementById('archiveContainer');
+        
+        if (!data.employees || data.employees.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-inbox"></i>
+                    <p>No archived employees</p>
+                </div>
+            `;
+            return;
+        }
+
+        const html = data.employees.map(emp => {
+            return `
+            <div class="archive-card">
+                <div class="archive-card-header">
+                    <div class="archive-emp-info">
+                        <h4>${emp.name}</h4>
+                        <p class="emp-id">ID: ${emp.employee_id}</p>
+                        <p class="emp-dept">${emp.department || 'N/A'}</p>
+                    </div>
+                    <div class="archive-card-actions">
+                        <button class="btn btn-sm btn-info" onclick="viewEmployeeMedicalDocs(${emp.id}, '${emp.name}')">
+                            <i class="fas fa-file-medical"></i> Medical Docs
+                        </button>
+                        <button class="btn btn-sm btn-success" onclick="restoreEmployee(${emp.id})">
+                            <i class="fas fa-undo"></i> Restore
+                        </button>
+                    </div>
+                </div>
+                <div class="archive-card-body">
+                    <div class="leave-summary">
+                        <div class="summary-item">
+                            <span class="summary-label">Annual Leave</span>
+                            <span class="summary-value">${emp.annual_leave_allocated.toFixed(1)} days allocated, ${emp.annual_leave_balance.toFixed(1)} remaining</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label">Sick Leave</span>
+                            <span class="summary-value">${emp.sick_leave_allocated.toFixed(1)} days allocated, ${emp.sick_leave_balance.toFixed(1)} remaining</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `}).join('');
+        
+        container.innerHTML = html;
+    }
+
+    async function restoreEmployee(employeeId) {
+        if (!confirm('Restore this employee?')) return;
+        
+        try {
+            const response = await fetch(`/api/employees/${employeeId}/restore`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            if (response.ok) {
+                await loadEmployees();
+                await loadArchiveTab();
+                showAlert('archiveAlert', 'Employee restored successfully', 'success');
+            } else {
+                showAlert('archiveAlert', 'Error restoring employee', 'error');
+            }
+        } catch (error) {
+            console.error('[v0] Error restoring employee:', error);
+            showAlert('archiveAlert', 'Error restoring employee', 'error');
+        }
+    }
+
+    async function viewEmployeeMedicalDocs(employeeId, employeeName) {
+        try {
+            const response = await fetch(`/api/employees/${employeeId}/medical-documents`);
+            const data = await response.json();
+            
+            const modal = document.getElementById('medicalDocsModal');
+            document.getElementById('medicalDocsEmployeeName').textContent = employeeName;
+            
+            const docsList = document.getElementById('medicalDocsList');
+            
+            if (!data.documents || data.documents.length === 0) {
+                docsList.innerHTML = `
+                    <div class="empty-state" style="padding: 2rem;">
+                        <i class="fas fa-folder-open" style="font-size: 2rem; color: #d1d5db; margin-bottom: 0.5rem;"></i>
+                        <p style="color: #6b7280;">No medical documents found for this employee</p>
+                    </div>
+                `;
+                openModal('medicalDocsModal');
+                return;
+            }
+            
+            docsList.innerHTML = data.documents.map(doc => `
+                <div class="medical-doc-item">
+                    <div class="doc-info">
+                        <div class="doc-header">
+                            <i class="fas fa-file-medical" style="color: #2563eb; margin-right: 0.5rem;"></i>
+                            <span class="doc-filename">${doc.medical_cert}</span>
+                        </div>
+                        <div class="doc-details">
+                            <span class="doc-date">Period: ${doc.start_date} to ${doc.end_date}</span>
+                            <span class="doc-reason">${doc.reason || 'No reason provided'}</span>
+                        </div>
+                    </div>
+                    <div class="doc-actions">
+                        <button class="btn btn-sm btn-primary" onclick="viewCertificate('${doc.medical_cert}', '${employeeName}')">
+                            <i class="fas fa-eye"></i> View
+                        </button>
+                        <button class="btn btn-sm btn-secondary" onclick="downloadCertificate('${doc.medical_cert}')">
+                            <i class="fas fa-download"></i> Download
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+            
+            openModal('medicalDocsModal');
+        } catch (error) {
+            console.error('[v0] Error loading medical documents:', error);
+            showAlert('archiveAlert', 'Error loading medical documents', 'error');
+        }
+    }
+
+    function downloadCertificate(filename) {
+        const fileUrl = `/uploads/${encodeURIComponent(filename)}`;
+        const link = document.createElement('a');
+        link.href = fileUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
     function showAlert(elementId, message, type) {
         const alert = document.getElementById(elementId);
         const icons = { success: 'check-circle', error: 'exclamation-circle', warning: 'exclamation-triangle' };
@@ -910,10 +1078,30 @@
                 document.getElementById(tabName + '-tab').classList.add('active');
                 
                 if (tabName === 'view') await loadViewLeave();
+                if (tabName === 'archive') await loadArchiveTab();
             });
         });
     });
 </script>
+
+<!-- Medical Documents Viewer Modal -->
+<div id="medicalDocsModal" class="modern-modal">
+    <div class="modal-overlay"></div>
+    <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-header">
+            <h3>Medical Documents - <span id="medicalDocsEmployeeName"></span></h3>
+            <button class="modal-close" onclick="closeModal('medicalDocsModal')">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div id="medicalDocsList" style="padding: 1.5rem; max-height: 500px; overflow-y: auto;">
+            <div class="loading-state"><i class="fas fa-spinner fa-spin"></i> Loading...</div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('medicalDocsModal')">Close</button>
+        </div>
+    </div>
+</div>
 
 <!-- Medical Certificate Viewer Modal -->
 <div id="certificateModal" class="modern-modal">

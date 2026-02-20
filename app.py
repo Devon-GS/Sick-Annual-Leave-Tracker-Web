@@ -38,7 +38,7 @@ def init_db():
                 username TEXT UNIQUE NOT NULL,
                 password TEXT NOT NULL,
                 password_changed INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
             
             CREATE TABLE IF NOT EXISTS employees (
@@ -48,7 +48,8 @@ def init_db():
                 department TEXT NOT NULL,
                 hire_date TEXT NOT NULL,
                 email TEXT,
-                phone TEXT
+                phone TEXT,
+                is_archived INTEGER DEFAULT 0
             );
             
             CREATE TABLE IF NOT EXISTS annualLeave (
@@ -74,7 +75,13 @@ def init_db():
                 FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
             );
         ''')
-        db.commit()
+        
+        # Migration: Add is_archived column if it doesn't exist
+        try:
+            db.execute('ALTER TABLE employees ADD COLUMN is_archived INTEGER DEFAULT 0')
+            db.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         
         # Create default admin user if it doesn't exist
         try:
@@ -340,8 +347,8 @@ def employees():
         except Exception as e:
             return jsonify({'error': str(e)}), 400
     
-    # GET - fetch all employees with leave balances
-    employees_list = db.execute('SELECT * FROM employees ORDER BY name').fetchall()
+    # GET - fetch all active (non-archived) employees with leave balances
+    employees_list = db.execute('SELECT * FROM employees WHERE is_archived = 0 ORDER BY name').fetchall()
     result = []
     
     for emp in employees_list:
@@ -372,9 +379,9 @@ def employee_detail(emp_id):
     
     if request.method == 'DELETE':
         try:
-            db.execute('DELETE FROM employees WHERE id = ?', (emp_id,))
+            db.execute('UPDATE employees SET is_archived = 1 WHERE id = ?', (emp_id,))
             db.commit()
-            return jsonify({'message': 'Employee deleted'}), 200
+            return jsonify({'message': 'Employee archived'}), 200
         except Exception as e:
             return jsonify({'error': str(e)}), 400
     
@@ -412,7 +419,7 @@ def annual_leave():
         except Exception as e:
             return jsonify({'error': str(e)}), 400
     
-    # GET
+    # GET - only return leave for active (non-archived) employees
     emp_id = request.args.get('employee_id')
     if emp_id:
         leaves = db.execute(
@@ -420,7 +427,7 @@ def annual_leave():
                       a.reason, a.days_used, a.status 
                FROM annualLeave a
                LEFT JOIN employees e ON a.employee_id = e.id
-               WHERE a.employee_id = ? 
+               WHERE a.employee_id = ? AND e.is_archived = 0
                ORDER BY a.start_date DESC''',
             (emp_id,)
         ).fetchall()
@@ -430,6 +437,7 @@ def annual_leave():
                       a.reason, a.days_used, a.status 
                FROM annualLeave a
                LEFT JOIN employees e ON a.employee_id = e.id
+               WHERE e.is_archived = 0
                ORDER BY a.start_date DESC'''
         ).fetchall()
     
@@ -509,7 +517,7 @@ def sick_leave():
         except Exception as e:
             return jsonify({'error': str(e)}), 400
     
-    # GET
+    # GET - only return leave for active (non-archived) employees
     emp_id = request.args.get('employee_id')
     if emp_id:
         leaves = db.execute(
@@ -517,7 +525,7 @@ def sick_leave():
                       s.reason, s.days_used, s.medical_cert, s.status 
                FROM sickLeave s
                LEFT JOIN employees e ON s.employee_id = e.id
-               WHERE s.employee_id = ? 
+               WHERE s.employee_id = ? AND e.is_archived = 0
                ORDER BY s.start_date DESC''',
             (emp_id,)
         ).fetchall()
@@ -527,6 +535,7 @@ def sick_leave():
                       s.reason, s.days_used, s.medical_cert, s.status 
                FROM sickLeave s
                LEFT JOIN employees e ON s.employee_id = e.id
+               WHERE e.is_archived = 0
                ORDER BY s.start_date DESC'''
         ).fetchall()
     
@@ -568,10 +577,11 @@ def view_leave():
     """Get all leave records with employee info"""
     db = get_db()
     
-    # Get all employees
+    # Get all active employees
     employees_data = db.execute(
         '''SELECT id, name, employee_id, department, hire_date
            FROM employees 
+           WHERE is_archived = 0
            ORDER BY name ASC'''
     ).fetchall()
     
@@ -625,6 +635,91 @@ def download_file(filename):
             return send_file(filepath, as_attachment=False)
         else:
             return jsonify({'error': 'File not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/archived-employees', methods=['GET'])
+@login_required
+def archived_employees():
+    """Get all archived employees with their leave records"""
+    db = get_db()
+    
+    # Get all archived employees
+    archived_data = db.execute(
+        '''SELECT id, name, employee_id, department, hire_date
+           FROM employees 
+           WHERE is_archived = 1
+           ORDER BY name ASC'''
+    ).fetchall()
+    
+    # Enhance employee data with calculated balances
+    employees = []
+    for emp in archived_data:
+        emp_dict = dict(emp)
+        # Calculate annual leave balance
+        annual_alloc, annual_balance = calculate_annual_leave_balance(emp['id'])
+        # Calculate sick leave balance
+        sick_alloc, sick_balance = calculate_sick_leave_balance(emp['id'])
+        
+        emp_dict['annual_leave_allocated'] = annual_alloc
+        emp_dict['annual_leave_balance'] = annual_balance
+        emp_dict['sick_leave_allocated'] = sick_alloc
+        emp_dict['sick_leave_balance'] = sick_balance
+        employees.append(emp_dict)
+    
+    # Get all annual leave for archived employees
+    annual = db.execute('''
+        SELECT a.id, a.employee_id, a.start_date, a.end_date, a.reason, a.days_used, a.status,
+               e.name as employee_name FROM annualLeave a
+        JOIN employees e ON a.employee_id = e.id
+        WHERE e.is_archived = 1
+        ORDER BY a.start_date DESC
+    ''').fetchall()
+    
+    # Get all sick leave for archived employees
+    sick = db.execute('''
+        SELECT s.id, s.employee_id, s.start_date, s.end_date, s.reason, s.days_used, s.medical_cert, s.status,
+               e.name as employee_name FROM sickLeave s
+        JOIN employees e ON s.employee_id = e.id
+        WHERE e.is_archived = 1
+        ORDER BY s.start_date DESC
+    ''').fetchall()
+    
+    return jsonify({
+        'employees': employees,
+        'annual': [dict(row) for row in annual],
+        'sick': [dict(row) for row in sick]
+    }), 200
+
+@app.route('/api/employees/<int:emp_id>/medical-documents', methods=['GET'])
+@login_required
+def get_employee_medical_documents(emp_id):
+    """Get all medical documents (certificates) for an employee"""
+    db = get_db()
+    
+    # Get all sick leave records with medical certificates for this employee
+    documents = db.execute(
+        '''SELECT id, employee_id, start_date, end_date, medical_cert, reason
+           FROM sickLeave
+           WHERE employee_id = ? AND medical_cert IS NOT NULL AND medical_cert != ''
+           ORDER BY start_date DESC''',
+        (emp_id,)
+    ).fetchall()
+    
+    return jsonify({
+        'documents': [dict(row) for row in documents]
+    }), 200
+
+@app.route('/api/employees/<int:emp_id>/restore', methods=['POST'])
+@login_required
+def restore_employee(emp_id):
+    """Restore an archived employee"""
+    db = get_db()
+    
+    try:
+        db.execute('UPDATE employees SET is_archived = 0 WHERE id = ?', (emp_id,))
+        db.commit()
+        return jsonify({'message': 'Employee restored'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
