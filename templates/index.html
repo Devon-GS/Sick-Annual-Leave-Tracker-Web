@@ -322,7 +322,32 @@
             </div>
             <div id="editMedCertField" class="form-group" style="display:none;">
                 <label>Medical Certificate</label>
-                <input type="text" id="editMedCert" name="medical_cert">
+                <div class="file-management-wrapper">
+                    <div id="editMedCertCurrent" class="current-file-section">
+                        <div class="current-file-item">
+                            <i class="fas fa-file-medical"></i>
+                            <span id="editMedCertFileName" class="file-name-display"></span>
+                            <div class="file-actions">
+                                <button type="button" class="btn btn-sm btn-info" id="editViewCertBtn" onclick="viewCurrentMedCert()" style="display:none;">
+                                    <i class="fas fa-eye"></i> View
+                                </button>
+                                <button type="button" class="btn btn-sm btn-danger" id="editDeleteCertBtn" onclick="deleteCurrentMedCert()" style="display:none;">
+                                    <i class="fas fa-trash"></i> Delete
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="divider" id="editMedCertDivider" style="display:none; margin: 0.75rem 0; border-top: 1px solid #e5e7eb;"></div>
+                    <div class="file-upload-section">
+                        <input type="file" id="editMedCert" name="medical_cert_file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style="display: none;">
+                        <input type="hidden" id="editMedCertHidden" name="medical_cert">
+                        <button type="button" class="btn btn-secondary btn-file-upload" onclick="document.getElementById('editMedCert').click()">
+                            <i class="fas fa-upload"></i> Upload Certificate
+                        </button>
+                        <span id="editMedCertNewFileName" class="file-name-display"></span>
+                    </div>
+                </div>
+                <small class="form-help-text">Accepted formats: PDF, JPG, PNG, DOC (Max 5MB)</small>
             </div>
             
             <div class="form-actions">
@@ -677,7 +702,23 @@
         
         if (type === 'sick') {
             document.getElementById('editMedCertField').style.display = 'block';
-            document.getElementById('editMedCert').value = leave.medical_cert || '';
+            // Reset new file input
+            document.getElementById('editMedCert').value = '';
+            document.getElementById('editMedCertNewFileName').textContent = '';
+            document.getElementById('editMedCertHidden').value = leave.medical_cert || '';
+            
+            // Display current certificate if it exists
+            if (leave.medical_cert) {
+                document.getElementById('editMedCertFileName').textContent = leave.medical_cert;
+                document.getElementById('editViewCertBtn').style.display = 'inline-block';
+                document.getElementById('editDeleteCertBtn').style.display = 'inline-block';
+                document.getElementById('editMedCertDivider').style.display = 'block';
+            } else {
+                document.getElementById('editMedCertFileName').textContent = 'No certificate uploaded';
+                document.getElementById('editViewCertBtn').style.display = 'none';
+                document.getElementById('editDeleteCertBtn').style.display = 'none';
+                document.getElementById('editMedCertDivider').style.display = 'none';
+            }
         } else {
             document.getElementById('editMedCertField').style.display = 'none';
         }
@@ -687,44 +728,131 @@
 
     async function submitEditLeaveForm(event) {
         event.preventDefault();
-        const data = Object.fromEntries(new FormData(event.target));
+        const formData = new FormData(event.target);
         const leaveId = document.getElementById('editLeaveId').value;
         const type = document.getElementById('editLeaveType').value;
         const endpoint = type === 'annual' ? '/api/annual-leave' : '/api/sick-leave';
         
         // Calculate days used
-        const startDate = new Date(data.start_date);
-        const endDate = new Date(data.end_date);
+        const startDate = new Date(formData.get('start_date'));
+        const endDate = new Date(formData.get('end_date'));
         const daysDifference = (endDate - startDate) / (1000 * 60 * 60 * 24) + 1;
-        data.days_used = Math.max(1, daysDifference);
         
-        // Remove editLeaveId and editLeaveType from data
-        delete data.editLeaveId;
-        delete data.editLeaveType;
-        if (type === 'annual') delete data.editMedCert;
+        const data = {
+            start_date: formData.get('start_date'),
+            end_date: formData.get('end_date'),
+            reason: formData.get('reason') || '',
+            days_used: Math.max(1, daysDifference)
+        };
         
-        try {
-            const response = await fetch(`${endpoint}/${leaveId}`, {
-                method: 'PUT',
-                body: JSON.stringify(data),
-                headers: { 'Content-Type': 'application/json' }
-            });
+        // Handle medical certificate for sick leave
+        if (type === 'sick') {
+            const newMedCertFile = document.getElementById('editMedCert').files[0];
+            const currentMedCert = document.getElementById('editMedCertHidden').value;
             
-            if (response.ok) {
-                closeModal('editLeaveModal');
-                if (type === 'annual') await loadAnnualLeave();
-                else await loadSickLeave();
-                await loadEmployees();
-                showAlert(type + 'Alert', 'Leave record updated successfully', 'success');
+            if (newMedCertFile) {
+                // New file uploaded - use FormData for multipart upload
+                const uploadFormData = new FormData();
+                uploadFormData.append('medical_cert_file', newMedCertFile);
+                uploadFormData.append('start_date', data.start_date);
+                uploadFormData.append('end_date', data.end_date);
+                uploadFormData.append('reason', data.reason);
+                uploadFormData.append('days_used', data.days_used);
+                
+                console.log("[v0] Uploading new medical cert file:", newMedCertFile.name);
+                
+                try {
+                    const response = await fetch(`${endpoint}/${leaveId}`, {
+                        method: 'PUT',
+                        body: uploadFormData
+                    });
+                    
+                    if (response.ok) {
+                        closeModal('editLeaveModal');
+                        await loadSickLeave();
+                        await loadEmployees();
+                        showAlert('sickAlert', 'Leave record updated successfully', 'success');
+                    } else {
+                        const error = await response.json();
+                        console.error('[v0] Upload error response:', error);
+                        showAlert('sickAlert', 'Failed to update leave record', 'error');
+                    }
+                } catch (error) {
+                    console.error('[v0] Error updating leave:', error);
+                    showAlert('sickAlert', 'Error updating leave record', 'error');
+                }
             } else {
-                const error = await response.json();
-                showAlert(type + 'Alert', `Error: ${error.error || 'Failed to update leave'}`, 'error');
+                // No new file - just update metadata and keep current cert (or delete if marked)
+                data.medical_cert = currentMedCert;
+                console.log("[v0] Updating leave without new file, current cert:", currentMedCert);
+                try {
+                    const response = await fetch(`${endpoint}/${leaveId}`, {
+                        method: 'PUT',
+                        body: JSON.stringify(data),
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    
+                    if (response.ok) {
+                        closeModal('editLeaveModal');
+                        await loadSickLeave();
+                        await loadEmployees();
+                        showAlert('sickAlert', 'Leave record updated successfully', 'success');
+                    } else {
+                        showAlert('sickAlert', 'Failed to update leave record', 'error');
+                    }
+                } catch (error) {
+                    console.error('[v0] Error updating leave:', error);
+                    showAlert('sickAlert', 'Error updating leave record', 'error');
+                }
             }
-        } catch (error) {
-            console.error('[v0] Update leave error:', error);
-            showAlert(type + 'Alert', 'Error updating leave', 'error');
+        } else {
+            // Annual leave - no medical cert
+            try {
+                const response = await fetch(`${endpoint}/${leaveId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify(data),
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                if (response.ok) {
+                    closeModal('editLeaveModal');
+                    await loadAnnualLeave();
+                    await loadEmployees();
+                    showAlert('annualAlert', 'Leave record updated successfully', 'success');
+                } else {
+                    showAlert('annualAlert', 'Failed to update leave record', 'error');
+                }
+            } catch (error) {
+                console.error('[v0] Error updating leave:', error);
+                showAlert('annualAlert', 'Error updating leave record', 'error');
+            }
         }
     }
+
+    function viewCurrentMedCert() {
+        const medCertName = document.getElementById('editMedCertFileName').textContent;
+        if (medCertName && medCertName !== 'No certificate uploaded') {
+            viewCertificate(medCertName);
+        }
+    }
+
+    function deleteCurrentMedCert() {
+        if (!confirm('Are you sure you want to delete this medical certificate?')) return;
+        
+        document.getElementById('editMedCertHidden').value = '';
+        document.getElementById('editMedCertFileName').textContent = 'No certificate uploaded';
+        document.getElementById('editViewCertBtn').style.display = 'none';
+        document.getElementById('editDeleteCertBtn').style.display = 'none';
+        document.getElementById('editMedCertDivider').style.display = 'none';
+    }
+
+    // Handle new file selection in edit form
+    document.addEventListener('change', function(e) {
+        if (e.target.id === 'editMedCert' && e.target.files.length > 0) {
+            const fileName = e.target.files[0].name;
+            document.getElementById('editMedCertNewFileName').textContent = `New file selected: ${fileName}`;
+        }
+    });
 
     async function deleteLeaveRecord() {
         if (!confirm('Delete this leave record?')) return;

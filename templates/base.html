@@ -1493,6 +1493,91 @@
                 flex: 1;
             }
         }
+
+        /* File Management Styles */
+        .file-management-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .current-file-section {
+            padding: 0.75rem;
+            background: var(--bg-alt);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+        }
+
+        .current-file-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+
+        .current-file-item i {
+            color: #2563eb;
+            font-size: 1.125rem;
+            flex-shrink: 0;
+        }
+
+        .file-name-display {
+            flex: 1;
+            min-width: 0;
+            word-break: break-word;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .file-actions {
+            display: flex;
+            gap: 0.5rem;
+            flex-shrink: 0;
+        }
+
+        .file-upload-section {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .btn-file-upload {
+            flex-shrink: 0;
+            white-space: nowrap;
+        }
+
+        .divider {
+            border-top: 1px solid #e5e7eb;
+            margin: 0.75rem 0;
+        }
+
+        @media (max-width: 640px) {
+            .file-management-wrapper {
+                gap: 0.5rem;
+            }
+
+            .current-file-item {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .file-actions {
+                width: 100%;
+            }
+
+            .file-actions .btn {
+                flex: 1;
+            }
+
+            .file-upload-section {
+                flex-direction: column;
+                width: 100%;
+            }
+
+            .btn-file-upload {
+                width: 100%;
+            }
+        }
     </style>
     {% block extra_styles %}{% endblock %}
 </head>

@@ -550,6 +550,13 @@ def sick_leave_detail(leave_id):
     
     if request.method == 'DELETE':
         try:
+            # Get the medical certificate filename before deleting
+            leave = db.execute('SELECT medical_cert FROM sickLeave WHERE id = ?', (leave_id,)).fetchone()
+            if leave and leave['medical_cert']:
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], leave['medical_cert'])
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+            
             db.execute('DELETE FROM sickLeave WHERE id = ?', (leave_id,))
             db.commit()
             return jsonify({'message': 'Sick leave deleted'}), 200
@@ -557,17 +564,71 @@ def sick_leave_detail(leave_id):
             return jsonify({'error': str(e)}), 400
     
     if request.method == 'PUT':
-        data = request.json
         try:
+            # Get the current leave record to check for existing medical cert
+            current_leave = db.execute('SELECT medical_cert FROM sickLeave WHERE id = ?', (leave_id,)).fetchone()
+            current_medical_cert = current_leave['medical_cert'] if current_leave else None
+            
+            # Initialize new medical cert value
+            new_medical_cert = current_medical_cert
+            
+            # Handle both multipart/form-data and JSON
+            if request.content_type and 'multipart/form-data' in request.content_type:
+                # File upload from form-data
+                data = {
+                    'start_date': request.form.get('start_date'),
+                    'end_date': request.form.get('end_date'),
+                    'reason': request.form.get('reason', ''),
+                    'days_used': float(request.form.get('days_used', 0))
+                }
+                
+                # Handle file upload if present
+                if 'medical_cert_file' in request.files:
+                    file = request.files['medical_cert_file']
+                    if file and file.filename and allowed_file(file.filename):
+                        # Delete old file if it exists
+                        if current_medical_cert:
+                            old_filepath = os.path.join(app.config['UPLOAD_FOLDER'], current_medical_cert)
+                            if os.path.exists(old_filepath):
+                                os.remove(old_filepath)
+                        
+                        # Save new file
+                        filename = secure_filename(f"{int(datetime.now().timestamp())}_{file.filename}")
+                        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                        file.save(filepath)
+                        new_medical_cert = filename
+                
+                # Check if medical_cert field is set to empty string (deletion)
+                if 'medical_cert' in request.form and request.form['medical_cert'] == '':
+                    # Delete old file if it exists
+                    if current_medical_cert:
+                        old_filepath = os.path.join(app.config['UPLOAD_FOLDER'], current_medical_cert)
+                        if os.path.exists(old_filepath):
+                            os.remove(old_filepath)
+                    new_medical_cert = ''
+            else:
+                # JSON request (for compatibility)
+                data = request.json or {}
+                # If medical_cert is explicitly set to empty string, delete the file
+                if 'medical_cert' in data and data['medical_cert'] == '':
+                    if current_medical_cert:
+                        old_filepath = os.path.join(app.config['UPLOAD_FOLDER'], current_medical_cert)
+                        if os.path.exists(old_filepath):
+                            os.remove(old_filepath)
+                    new_medical_cert = ''
+                elif 'medical_cert' in data:
+                    new_medical_cert = data['medical_cert']
+            
+            # Update the database
             db.execute(
                 '''UPDATE sickLeave 
                    SET start_date = ?, end_date = ?, reason = ?, days_used = ?, medical_cert = ?, status = ?
                    WHERE id = ?''',
                 (data['start_date'], data['end_date'], data.get('reason', ''), 
-                 data['days_used'], data.get('medical_cert', ''), data.get('status', 'Approved'), leave_id)
+                 data['days_used'], new_medical_cert, data.get('status', 'Approved'), leave_id)
             )
             db.commit()
-            return jsonify({'message': 'Sick leave updated'}), 200
+            return jsonify({'message': 'Sick leave updated', 'medical_cert': new_medical_cert}), 200
         except Exception as e:
             return jsonify({'error': str(e)}), 400
 
