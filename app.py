@@ -99,36 +99,43 @@ def login_required(f):
     return decorated_function
 
 def calculate_annual_leave_balance(employee_id):
-    """Calculate annual leave balance based on hire date and used days"""
-    db = get_db()
+	"""Calculate annual leave balance based on hire date and used days"""
+	db = get_db()
+	
+	# Get employee hire date
+	emp = db.execute(
+		'SELECT hire_date, employee_id FROM employees WHERE id = ?',
+		(employee_id,)
+	).fetchone()
+	
+	if not emp:
+		return 0, 0
+	
+	hire_date = datetime.strptime(emp['hire_date'], '%Y-%m-%d')
+	today = datetime.now()
+	months_employed = (today.year - hire_date.year) * 12 + (today.month - hire_date.month)
+	
+	# Calculate entitlement based on employee ID
+	# Special rate for employee 8601310127086: 1.66 days per month
+	# All other employees: 1.25 days per month
+	id_employee = emp['employee_id']
+	
+	if id_employee == '8601310127086':
+		entitlement = months_employed * (20/12)
+	else:
+		entitlement = months_employed * 1.25
+	
+	# Get used days
+	used = db.execute(
+		'SELECT COALESCE(SUM(days_used), 0) as total FROM annualLeave WHERE employee_id = ? AND status = "Approved"',
+		(employee_id,)
+	).fetchone()
+	
+	used_days = float(used['total']) if used else 0
+	balance = entitlement - used_days
+	
+	return entitlement, balance
     
-    # Get employee hire date
-    emp = db.execute(
-        'SELECT hire_date FROM employees WHERE id = ?',
-        (employee_id,)
-    ).fetchone()
-    
-    if not emp:
-        return 0, 0
-    
-    hire_date = datetime.strptime(emp['hire_date'], '%Y-%m-%d')
-    today = datetime.now()
-    months_employed = (today.year - hire_date.year) * 12 + (today.month - hire_date.month)
-    
-    # Calculate entitlement: 1.25 days per month
-    entitlement = months_employed * 1.25
-    
-    # Get used days
-    used = db.execute(
-        'SELECT COALESCE(SUM(days_used), 0) as total FROM annualLeave WHERE employee_id = ? AND status = "Approved"',
-        (employee_id,)
-    ).fetchone()
-    
-    used_days = float(used['total']) if used else 0
-    balance = entitlement - used_days
-    
-    return entitlement, balance
-
 def calculate_sick_leave_balance(employee_id):
     """
     Calculate sick leave balance:
