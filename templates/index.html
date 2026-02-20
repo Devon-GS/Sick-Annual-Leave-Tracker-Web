@@ -50,7 +50,6 @@
                         <tr>
                             <th>Name</th>
                             <th>Employee ID</th>
-                            <th>Department</th>
                             <th>Hire Date</th>
                             <th>Annual Leave</th>
                             <th>Sick Leave</th>
@@ -388,7 +387,6 @@
             <tr>
                 <td>${emp.name}</td>
                 <td>${emp.employee_id}</td>
-                <td>${emp.department}</td>
                 <td>${emp.hire_date}</td>
                 <td>${(emp.annual_leave_balance || 0).toFixed(1)} days</td>
                 <td>${(emp.sick_leave_balance || 0).toFixed(1)} days</td>
@@ -759,8 +757,6 @@
                 uploadFormData.append('reason', data.reason);
                 uploadFormData.append('days_used', data.days_used);
                 
-                console.log("[v0] Uploading new medical cert file:", newMedCertFile.name);
-                
                 try {
                     const response = await fetch(`${endpoint}/${leaveId}`, {
                         method: 'PUT',
@@ -784,7 +780,6 @@
             } else {
                 // No new file - just update metadata and keep current cert (or delete if marked)
                 data.medical_cert = currentMedCert;
-                console.log("[v0] Updating leave without new file, current cert:", currentMedCert);
                 try {
                     const response = await fetch(`${endpoint}/${leaveId}`, {
                         method: 'PUT',
@@ -1064,7 +1059,6 @@
                     <div class="archive-emp-info">
                         <h4>${emp.name}</h4>
                         <p class="emp-id">ID: ${emp.employee_id}</p>
-                        <p class="emp-dept">${emp.department || 'N/A'}</p>
                     </div>
                     <div class="archive-card-actions">
                         <button class="btn btn-sm btn-info" onclick="viewEmployeeMedicalDocs(${emp.id}, '${emp.name}')">

@@ -1,11 +1,10 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for, session, send_file
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from functools import wraps
-from datetime import datetime, timedelta
+from datetime import datetime
 import sqlite3
 import os
-import json
 
 app = Flask(__name__)
 app.config['DATABASE'] = 'leave_manager.db'
@@ -37,18 +36,14 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
                 password TEXT NOT NULL,
-                password_changed INTEGER DEFAULT 0,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                password_changed INTEGER DEFAULT 0
             );
             
             CREATE TABLE IF NOT EXISTS employees (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 employee_id TEXT UNIQUE NOT NULL,
-                department TEXT NOT NULL,
                 hire_date TEXT NOT NULL,
-                email TEXT,
-                phone TEXT,
                 is_archived INTEGER DEFAULT 0
             );
             
@@ -328,9 +323,9 @@ def employees():
         data = request.json
         try:
             cursor = db.execute(
-                '''INSERT INTO employees (name, employee_id, department, hire_date, email, phone)
-                   VALUES (?, ?, ?, ?, ?, ?)''',
-                (data['name'], data['employee_id'], '', data['hire_date'], '', '')
+                '''INSERT INTO employees (name, employee_id, hire_date)
+                   VALUES (?, ?, ?)''',
+                (data['name'], data['employee_id'], data['hire_date'])
             )
             db.commit()
             
@@ -339,10 +334,7 @@ def employees():
                 'id': emp_id,
                 'name': data['name'],
                 'employee_id': data['employee_id'],
-                'department': '',
-                'hire_date': data['hire_date'],
-                'email': '',
-                'phone': ''
+                'hire_date': data['hire_date']
             }), 201
         except Exception as e:
             return jsonify({'error': str(e)}), 400
@@ -359,10 +351,7 @@ def employees():
             'id': emp['id'],
             'name': emp['name'],
             'employee_id': emp['employee_id'],
-            'department': emp['department'],
             'hire_date': emp['hire_date'],
-            'email': emp['email'],
-            'phone': emp['phone'],
             'annual_leave_balance': round(annual_bal, 2),
             'annual_leave_entitlement': round(annual_ent, 2),
             'sick_leave_balance': round(sick_bal, 2),
@@ -640,7 +629,7 @@ def view_leave():
     
     # Get all active employees
     employees_data = db.execute(
-        '''SELECT id, name, employee_id, department, hire_date
+        '''SELECT id, name, employee_id, hire_date
            FROM employees 
            WHERE is_archived = 0
            ORDER BY name ASC'''
@@ -707,7 +696,7 @@ def archived_employees():
     
     # Get all archived employees
     archived_data = db.execute(
-        '''SELECT id, name, employee_id, department, hire_date
+        '''SELECT id, name, employee_id, hire_date
            FROM employees 
            WHERE is_archived = 1
            ORDER BY name ASC'''
