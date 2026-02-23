@@ -23,7 +23,13 @@ import sys
 from datetime import datetime
 
 # Configuration
-DB_NAME = '../leave_manager.db'
+# 1. Get the directory where this script is located
+current_script_dir = os.path.dirname(os.path.abspath(__file__))
+
+# 2. Construct the full path
+db_path = os.path.normpath(os.path.join(current_script_dir, "../../Database/leave_manager.db"))
+
+DB_NAME = db_path
 
 # --- Database Setup ---
 def create_database():

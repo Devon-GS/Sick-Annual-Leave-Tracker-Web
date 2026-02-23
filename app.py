@@ -7,7 +7,10 @@ import sqlite3
 import os
 
 app = Flask(__name__)
-app.config['DATABASE'] = 'leave_manager.db'
+# Make folder for database
+folder_path = "Database"
+os.makedirs(folder_path, exist_ok=True)
+app.config['DATABASE'] = 'Database/leave_manager.db'
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), 'uploads')
 app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5MB max file size
