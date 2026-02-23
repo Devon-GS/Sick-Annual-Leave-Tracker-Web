@@ -19,14 +19,19 @@
 import sqlite3
 import csv
 import os
+import sys
 from datetime import datetime
 
+# Configuration
 DB_NAME = '../leave_manager.db'
 
+# --- Database Setup ---
 def create_database():
     """Initializes the database with the required schema."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
+    
+    # Enable Foreign Keys
     cursor.execute("PRAGMA foreign_keys = ON;")
 
     cursor.executescript("""
@@ -69,139 +74,160 @@ def create_database():
         );
     """)
     conn.commit()
-    print(f"✅ Database checked/created successfully.")
     return conn
 
+# --- Date Formatting Helper ---
 def clean_date(date_str):
     """
-    Tries to convert various date formats (DD/MM/YYYY) to the database standard (YYYY-MM-DD).
+    Converts DD/MM/YYYY to YYYY-MM-DD so the database doesn't crash.
     """
     if not date_str:
         return None
-        
-    # List of formats to try. 
-    # Priority 1: DD/MM/YYYY (South African/UK standard)
-    # Priority 2: YYYY-MM-DD (Already correct)
-    # Priority 3: MM/DD/YYYY (US standard - just in case)
-    formats = ['%d/%m/%Y', '%Y-%m-%d', '%m/%d/%Y']
+    
+    date_str = date_str.strip()
+    
+    # Formats to try (Priority: SA/UK -> ISO -> US)
+    formats = ['%d/%m/%Y', '%Y-%m-%d', '%m/%d/%Y', '%Y/%m/%d']
     
     for fmt in formats:
         try:
-            # If successful, returns YYYY-MM-DD
-            return datetime.strptime(date_str.strip(), fmt).strftime('%Y-%m-%d')
+            return datetime.strptime(date_str, fmt).strftime('%Y-%m-%d')
         except ValueError:
             continue
             
-    print(f"⚠️  Warning: Could not parse date '{date_str}'. Keeping original.")
+    print(f"   ⚠️  Warning: Could not format date '{date_str}'. Inserting as is.")
     return date_str
 
+# --- CSV Template Creation ---
+def create_csv_templates():
+    """Creates empty CSV files with headers only if they don't exist."""
+    files_created = False
+    
+    # Employees
+    if not os.path.exists('employees.csv'):
+        with open('employees.csv', 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['name', 'employee_id', 'hire_date', 'is_archived'])
+        print("📄 Created template: 'employees.csv'")
+        files_created = True
+
+    # Annual Leave
+    if not os.path.exists('annual_leave.csv'):
+        with open('annual_leave.csv', 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['employee_id', 'start_date', 'end_date', 'reason', 'days_used', 'status'])
+        print("📄 Created template: 'annual_leave.csv'")
+        files_created = True
+
+    # Sick Leave
+    if not os.path.exists('sick_leave.csv'):
+        with open('sick_leave.csv', 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['employee_id', 'start_date', 'end_date', 'reason', 'days_used', 'medical_cert', 'status'])
+        print("📄 Created template: 'sick_leave.csv'")
+        files_created = True
+
+    return files_created
+
+# --- Import Logic ---
 def get_employee_pk(cursor, emp_string_id):
+    """Finds internal DB ID from string Employee ID."""
     cursor.execute("SELECT id FROM employees WHERE employee_id = ?", (emp_string_id,))
     result = cursor.fetchone()
     return result[0] if result else None
 
-def import_employees(conn, csv_file):
-    if not os.path.exists(csv_file):
-        print(f"⚠️  File {csv_file} not found. Skipping.")
-        return
-
-    print(f"📥 Importing Employees from {csv_file}...")
+def run_import_process(conn):
     cursor = conn.cursor()
-    count = 0
     
-    with open(csv_file, mode='r', newline='', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            try:
-                # Convert date here
-                formatted_hire_date = clean_date(row['hire_date'])
-                
-                cursor.execute("""
-                    INSERT INTO employees (name, employee_id, hire_date, is_archived)
-                    VALUES (?, ?, ?, ?)
-                """, (
-                    row['name'], 
-                    row['employee_id'], 
-                    formatted_hire_date, 
-                    row.get('is_archived', 0)
-                ))
-                count += 1
-            except sqlite3.IntegrityError:
-                print(f"   - Skipped duplicate Employee ID: {row['employee_id']}")
-    
-    conn.commit()
-    print(f"✅ Imported {count} employees.")
+    # 1. Import Employees
+    if os.path.exists('employees.csv'):
+        print("\n📥 Importing Employees...")
+        with open('employees.csv', mode='r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            count = 0
+            for row in reader:
+                try:
+                    hire_date = clean_date(row['hire_date'])
+                    cursor.execute("INSERT INTO employees (name, employee_id, hire_date, is_archived) VALUES (?, ?, ?, ?)", 
+                                  (row['name'], row['employee_id'], hire_date, row.get('is_archived', 0)))
+                    count += 1
+                except sqlite3.IntegrityError:
+                    print(f"   - Skipped duplicate: {row['employee_id']}")
+                except Exception as e:
+                    print(f"   - Error on row {row}: {e}")
+            conn.commit()
+            print(f"✅ Processed {count} employees.")
 
-def import_annual_leave(conn, csv_file):
-    if not os.path.exists(csv_file):
-        return
+    # 2. Import Annual Leave
+    if os.path.exists('annual_leave.csv'):
+        print("\n📥 Importing Annual Leave...")
+        with open('annual_leave.csv', mode='r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            count = 0
+            for row in reader:
+                emp_pk = get_employee_pk(cursor, row['employee_id'])
+                if emp_pk:
+                    start = clean_date(row['start_date'])
+                    end = clean_date(row['end_date'])
+                    cursor.execute("INSERT INTO annualLeave (employee_id, start_date, end_date, reason, days_used, status) VALUES (?, ?, ?, ?, ?, ?)",
+                                  (emp_pk, start, end, row.get('reason',''), row['days_used'], row.get('status', 'Approved')))
+                    count += 1
+                else:
+                    print(f"   - ⚠️  Skipping: Employee ID '{row['employee_id']}' not found.")
+            conn.commit()
+            print(f"✅ Processed {count} annual leave records.")
 
-    print(f"📥 Importing Annual Leave from {csv_file}...")
-    cursor = conn.cursor()
-    count = 0
+    # 3. Import Sick Leave
+    if os.path.exists('sick_leave.csv'):
+        print("\n📥 Importing Sick Leave...")
+        with open('sick_leave.csv', mode='r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            count = 0
+            for row in reader:
+                emp_pk = get_employee_pk(cursor, row['employee_id'])
+                if emp_pk:
+                    start = clean_date(row['start_date'])
+                    end = clean_date(row['end_date'])
+                    cursor.execute("INSERT INTO sickLeave (employee_id, start_date, end_date, reason, days_used, medical_cert, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                  (emp_pk, start, end, row.get('reason',''), row['days_used'], row.get('medical_cert',''), row.get('status', 'Approved')))
+                    count += 1
+                else:
+                    print(f"   - ⚠️  Skipping: Employee ID '{row['employee_id']}' not found.")
+            conn.commit()
+            print(f"✅ Processed {count} sick leave records.")
 
-    with open(csv_file, mode='r', newline='', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            internal_id = get_employee_pk(cursor, row['employee_id'])
-            if internal_id:
-                # Convert dates here
-                start = clean_date(row['start_date'])
-                end = clean_date(row['end_date'])
-
-                cursor.execute("""
-                    INSERT INTO annualLeave (employee_id, start_date, end_date, reason, days_used, status)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    internal_id, start, end,
-                    row.get('reason', ''), row['days_used'], row.get('status', 'Approved')
-                ))
-                count += 1
-            else:
-                print(f"   - ⚠️  Skipping: Employee '{row['employee_id']}' not found.")
-    
-    conn.commit()
-    print(f"✅ Imported {count} annual leave records.")
-
-def import_sick_leave(conn, csv_file):
-    if not os.path.exists(csv_file):
-        return
-
-    print(f"📥 Importing Sick Leave from {csv_file}...")
-    cursor = conn.cursor()
-    count = 0
-
-    with open(csv_file, mode='r', newline='', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            internal_id = get_employee_pk(cursor, row['employee_id'])
-            if internal_id:
-                # Convert dates here
-                start = clean_date(row['start_date'])
-                end = clean_date(row['end_date'])
-
-                cursor.execute("""
-                    INSERT INTO sickLeave (employee_id, start_date, end_date, reason, days_used, medical_cert, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    internal_id, start, end,
-                    row.get('reason', ''), row['days_used'], row.get('medical_cert', ''), row.get('status', 'Approved')
-                ))
-                count += 1
-            else:
-                print(f"   - ⚠️  Skipping: Employee '{row['employee_id']}' not found.")
-    
-    conn.commit()
-    print(f"✅ Imported {count} sick leave records.")
-
+# --- Main Menu ---
 if __name__ == "__main__":
+    print("--- Bulk Import Tool ---")
+    
+    # 1. Setup DB
     conn = create_database()
-    if conn:
-        import_employees(conn, 'employees.csv')
-        import_annual_leave(conn, 'annual_leave.csv')
-        import_sick_leave(conn, 'sick_leave.csv')
+    
+    # 2. Check/Create CSVs
+    files_created = create_csv_templates()
+    
+    if files_created:
+        print("\nℹ️  New CSV templates were created.")
+    else:
+        print("\nℹ️  Existing CSV files found.")
+
+    print("\nSelect an option:")
+    print("1. Continue to Import (I have filled out the CSV files)")
+    print("2. Quit (I need to fill out the CSV files now)")
+    
+    choice = input("\nYour choice (1 or 2): ").strip()
+    
+    if choice == '1':
+        run_import_process(conn)
         conn.close()
-        print("🎉 Finished.")
+        print("\n🎉 Import Complete.")
+    elif choice == '2':
+        conn.close()
+        print("\n👋 Exiting. Please fill out 'employees.csv', 'annual_leave.csv', and 'sick_leave.csv' and run this script again.")
+        sys.exit()
+    else:
+        conn.close()
+        print("Invalid choice. Exiting.")
 
 # Required CSV Formats
 
