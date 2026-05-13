@@ -15,8 +15,9 @@ node_modules/
 /Questions.txt
 /leave_manager.db
 /exe
-/Bulk_imports/annual_leave.csv
+/Bulk_imports
 /Bulk_imports/employees.csv
 /Bulk_imports/employees.csv
 /Bulk_imports/sick_leave.csv
+/Bulk_imports/Database
 /Database

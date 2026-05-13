@@ -388,8 +388,8 @@
                 <td>${emp.name}</td>
                 <td>${emp.employee_id}</td>
                 <td>${emp.hire_date}</td>
-                <td>${(emp.annual_leave_balance || 0).toFixed(1)} days</td>
-                <td>${(emp.sick_leave_balance || 0).toFixed(1)} days</td>
+                <td>${(emp.annual_leave_balance || 0).toFixed(2)} days</td>
+                <td>${(emp.sick_leave_balance || 0).toFixed(2)} days</td>
                 <td>
                     <button class="btn btn-sm btn-secondary" onclick="editEmployee(${emp.id})">Edit</button>
                     <button class="btn btn-sm btn-danger" onclick="deleteEmployee(${emp.id})">Delete</button>
