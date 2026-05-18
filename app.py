@@ -310,6 +310,42 @@ def logout():
 	session.clear()
 	return redirect(url_for('login'))
 
+@app.route('/api/change-password', methods=['POST'])
+@login_required
+def api_change_password():
+	"""Change user password via API"""
+	data = request.json
+	username = session.get('username')
+	
+	current_password = data.get('current_password', '')
+	new_password = data.get('new_password', '')
+	
+	if not current_password or not new_password:
+		return jsonify({'error': 'Current and new passwords are required'}), 400
+	
+	if len(new_password) < 6:
+		return jsonify({'error': 'Password must be at least 6 characters long'}), 400
+	
+	try:
+		db = get_db()
+		user = db.execute('SELECT password FROM users WHERE username = ?', (username,)).fetchone()
+		
+		if not user:
+			return jsonify({'error': 'User not found'}), 404
+		
+		# Verify current password
+		if not check_password_hash(user['password'], current_password):
+			return jsonify({'error': 'Current password is incorrect'}), 401
+		
+		# Hash and update new password
+		hashed_password = generate_password_hash(new_password)
+		db.execute('UPDATE users SET password = ? WHERE username = ?', (hashed_password, username))
+		db.commit()
+		
+		return jsonify({'message': 'Password changed successfully'}), 200
+	except Exception as e:
+		return jsonify({'error': str(e)}), 500
+
 @app.route('/')
 @login_required
 def index():

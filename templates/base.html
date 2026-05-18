@@ -110,6 +110,25 @@
             background: #dc2626;
         }
 
+        nav button.change-password-btn {
+            padding: 0.5rem 1rem;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        nav button.change-password-btn:hover {
+            background: var(--primary-dark);
+        }
+
         /* Main Container */
         main {
             max-width: 1400px;
@@ -688,13 +707,17 @@
         }
 
         .modal-overlay {
-            position: absolute;
+            position: fixed;
             top: 0;
             left: 0;
             right: 0;
             bottom: 0;
             background: rgba(0, 0, 0, 0.5);
             backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
         }
 
         .modern-modal .modal-content {
@@ -1593,6 +1616,9 @@
                     <i class="fas fa-user-circle"></i>
                     <span>Welcome, <strong>{{ session.username }}</strong></span>
                 </div>
+                <button onclick="openChangePasswordModal()" class="change-password-btn" title="Change Password">
+                    <i class="fas fa-key"></i>Change Password
+                </button>
                 <a href="{{ url_for('logout') }}" class="logout-btn">
                     <i class="fas fa-sign-out-alt"></i>Logout
                 </a>
@@ -1649,6 +1675,37 @@
     </script>
     {% block scripts %}{% endblock %}
 
+    <!-- Change Password Modal -->
+    <div id="changePasswordModal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Change Password</h3>
+                <button class="modal-close" onclick="closeChangePasswordModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <form id="changePasswordForm" onsubmit="submitChangePassword(event)">
+                <div class="form-group">
+                    <label>Current Password</label>
+                    <input type="password" id="currentPassword" required placeholder="Enter your current password">
+                </div>
+                <div class="form-group">
+                    <label>New Password</label>
+                    <input type="password" id="newPassword" required placeholder="Enter your new password" minlength="6">
+                </div>
+                <div class="form-group">
+                    <label>Confirm New Password</label>
+                    <input type="password" id="confirmPassword" required placeholder="Confirm your new password" minlength="6">
+                </div>
+                <div id="changePasswordAlert"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeChangePasswordModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Update Password</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Footer -->
     <footer class="app-footer">
         <div class="footer-content">
@@ -1659,6 +1716,73 @@
     <script>
         // Set dynamic year in footer
         document.getElementById('year').textContent = new Date().getFullYear();
+
+        // Change Password Modal Functions
+        function openChangePasswordModal() {
+            document.getElementById('changePasswordModal').style.display = 'flex';
+            document.getElementById('changePasswordForm').reset();
+            document.getElementById('changePasswordAlert').textContent = '';
+        }
+
+        function closeChangePasswordModal() {
+            document.getElementById('changePasswordModal').style.display = 'none';
+            document.getElementById('changePasswordForm').reset();
+            document.getElementById('changePasswordAlert').textContent = '';
+        }
+
+        async function submitChangePassword(event) {
+            event.preventDefault();
+
+            const currentPassword = document.getElementById('currentPassword').value;
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+            const alertDiv = document.getElementById('changePasswordAlert');
+
+            // Validate passwords match
+            if (newPassword !== confirmPassword) {
+                alertDiv.innerHTML = '<div class="alert alert-error">New passwords do not match</div>';
+                return;
+            }
+
+            // Validate password length
+            if (newPassword.length < 6) {
+                alertDiv.innerHTML = '<div class="alert alert-error">Password must be at least 6 characters long</div>';
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/change-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        current_password: currentPassword,
+                        new_password: newPassword
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    alertDiv.innerHTML = '<div class="alert alert-success">Password changed successfully!</div>';
+                    setTimeout(() => {
+                        closeChangePasswordModal();
+                    }, 1500);
+                } else {
+                    alertDiv.innerHTML = `<div class="alert alert-error">${data.error || 'Failed to change password'}</div>`;
+                }
+            } catch (error) {
+                console.error('[v0] Error changing password:', error);
+                alertDiv.innerHTML = '<div class="alert alert-error">Error changing password</div>';
+            }
+        }
+
+        // Close modal when clicking outside
+        document.addEventListener('click', function(event) {
+            const modal = document.getElementById('changePasswordModal');
+            if (event.target === modal) {
+                closeChangePasswordModal();
+            }
+        });
     </script>
 </body>
 </html>
