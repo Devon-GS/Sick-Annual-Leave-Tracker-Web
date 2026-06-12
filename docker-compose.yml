@@ -1,0 +1,17 @@
+services:
+  app:
+    build: .
+    container_name: leave_manager
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      # Change this to a secure random string for production
+      - SECRET_KEY=your-super-secure-production-secret-key
+    volumes:
+      - sqlite_data:/app/Database/
+      - upload_data:/app/uploads
+
+volumes:
+  sqlite_data:
+  upload_data:
