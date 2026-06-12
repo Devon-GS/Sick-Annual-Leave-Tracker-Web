@@ -1,71 +1,105 @@
-# Employee Leave Manager - Flask Web App
+# Employee Leave Management System
 
-A web-based application for managing employee annual leave and sick leave records.
+A robust Flask-based web application designed to track employee annual and sick leave. The system features automated balance calculations based on hire dates, medical certificate management, and an archival system for former employees.
 
-## Features
+## 🚀 Features
 
-- **Employee Management**: Add, edit, and delete employees with their basic information
-- **Annual Leave Tracking**: Manage annual leave records with automatic balance calculation (1.25 days/month)
-- **Sick Leave Tracking**: Manage sick leave records with automatic balance calculation (30 days per 36 months)
-- **Leave Reports**: View all leave records by employee or leave type
-- **Leave Balance**: Automatic calculation of remaining leave balance based on hire date and used days
+*   **Employee Management:** Add, edit, archive, and restore employee records.
+*   **Annual Leave Tracking:** 
+    *   Standard accrual: 1.25 days per month.
+    *   Special accrual: 1.66 days per month for specific ID numbers.
+*   **Sick Leave Logic:** 
+    *   First 6 months: 6-day entitlement.
+    *   After 6 months: 30 days per 36-month (3-year) cycle.
+*   **Document Management:** Upload and view medical certificates (PDF, PNG, JPG, DOCX).
+*   **Secure Authentication:** 
+    *   Admin login with hashed passwords.
+    *   Forced password change on first login.
+*   **Data Persistence:** SQLite database storage.
+*   **Docker Support:** Ready for containerized deployment.
 
-## Requirements
+---
 
-- Python 3.7+
-- Flask 3.0.0
+## 🛠️ Installation & Local Setup
 
-## Installation
+### Prerequisites
+*   Python 3.8 or higher
+*   Pip (Python package manager)
 
-1. Create a virtual environment (optional but recommended):
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+### Steps
+1. **Clone the repository:**
+   ```bash
+   git clone <your-repo-url>
+   cd leave-manager
+   ```
+
+2. **Create a virtual environment:**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. **Install dependencies:**
+   ```bash
+   pip install Flask Werkzeug
+   ```
+
+4. **Run the application:**
+   ```bash
+   python app.py
+   ```
+   The app will be available at `http://127.0.0.1:5000`.
+
+---
+
+## 🐳 Docker Deployment
+
+The application includes Docker support for easy hosting and environment consistency.
+
+### Using Docker Compose
+1.  **Build and start the container:**
+    ```bash
+    docker-compose up -d --build
+    ```
+---
+
+## 🔐 Configuration
+
+*   **Default Credentials:**
+    *   **Username:** `admin`
+    *   **Password:** `admin123` (System will prompt for a change on first login).
+*   **Secret Key:** Set the `SECRET_KEY` environment variable in production for session security.
+*   **Uploads:** Files are restricted to 5MB and specific extensions (`pdf`, `jpg`, `jpeg`, `png`, `doc`, `docx`).
+
+---
+
+## 📁 Project Structure
+
+```text
+.
+├── app.py              # Main Flask application logic & API routes
+├── Database/           # SQLite database storage (Auto-created)
+├── uploads/            # Medical certificate storage (Auto-created)
+├── templates/          # HTML files (index, login, change_password)
+├── static/             # CSS and Frontend JavaScript (if applicable)
+├── Dockerfile          # Docker configuration
+└── README.md           # This file
 ```
 
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+---
 
-## Running the Application
+## 📝 Technical Details
 
-Start the Flask development server:
-```bash
-python app.py
-```
+### Leave Calculation Logic
+*   **Annual Leave:** Accrues monthly from the hire date. The system identifies specific IDs (e.g., `86013101`) to apply a higher accrual rate (20 days/year) vs. the standard (15 days/year).
+*   **Sick Leave Cycle:** 
+    *   The 36-month cycle starts exactly 180 days (6 months) after the hire date.
+    *   Any leave taken during the first 6 months is deducted from the first 36-month cycle's 30-day allotment.
 
-The application will be available at `http://localhost:5000`
+### API Endpoints
+*   `GET /api/employees`: List all active employees and their current balances.
+*   `POST /api/annual-leave`: Record a new annual leave entry.
+*   `POST /api/sick-leave`: Record sick leave (supports `multipart/form-data` for file uploads).
+*   `GET /api/archived-employees`: Retrieve records for deleted/archived staff.
 
-### First Login
-
-On the first login, you must change the default admin password:
-- Default username: `admin`
-- Default password: `admin123`
-
-After logging in, you will be redirected to a mandatory password change screen. This is a security requirement before accessing the application dashboard.
-
-## Database
-
-The application uses SQLite3 for data storage. The database is automatically created on first run with the following tables:
-- `employees`: Employee information
-- `annualLeave`: Annual leave records
-- `sickLeave`: Sick leave records
-
-## Usage
-
-1. **Add Employees**: Go to the Employees tab and click "Add Employee" to create new employee records
-2. **Add Leave**: Use the Annual Leave or Sick Leave tabs to add leave records for employees
-3. **View Leave**: Use the "View All Leave" tab to see a complete report of all leave records
-4. **Edit/Delete**: Click the edit button next to any record to modify or delete it
-
-## Leave Balance Calculation
-
-### Annual Leave
-- Entitlement: 1.25 days per month employed
-- Maximum: 30 days per year
-- Balance = Entitlement - Used Days
-
-### Sick Leave
-- Entitlement: 30 days per 36 months employed
-- Balance = Entitlement - Used Days
+---

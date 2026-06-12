@@ -1,6 +1,9 @@
 services:
-  app:
-    build: .
+ app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: leave-manage-image
     container_name: leave_manager
     restart: unless-stopped
     ports:
